@@ -5,31 +5,61 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import product.Barcode;
 import product.Category;
+import product.Product;
 
 import java.io.IOException;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 
-public class Parser {
+public class GoodsParser {
 
-    private static String url = "http://www.goodsmatrix.ru/GMMap.aspx";
+    private String url = "http://www.goodsmatrix.ru/GMMap.aspx";
 
     private Elements links;
     private ArrayList<String> categorieslinks;
     private ArrayList<Category> categoryArrayList;
+    private ArrayList<Product> productArrayList;
 
-    Parser() throws IOException {
+    GoodsParser() throws IOException {
         links = parseCategoriesLinks();
         categorieslinks = getLinksAsList(links);
 
         for(String s : categorieslinks) {
-            categoryArrayList =getAllBarcodesOnPage(s);
+            String link = s.trim();
+            categoryArrayList = getAllBarcodesOnPage(link);
+            break;
         }
+
+        for(Category c : categoryArrayList) {
+            for(Barcode b : c.getBarcodes()) {
+                productArrayList.add(getProductInfo(c, b));
+            }
+        }
+    }
+
+    private Product getProductInfo(Category category, Barcode barcode) throws IOException {
+        Product product = null;
+
+
+
+        Document doc = Jsoup
+                .connect("http://goodsmatrix.ru/goods/" + barcode.toString() +  ".html")
+                .get();
+
+        String name = doc.select("title").text();
+
+        String composition = doc.select("span[id='ctl00_ContentPH_Composition']").text();
+
+        product = new Product(category, name, composition, barcode);
+
+        return product;
     }
 
     private ArrayList<Category> getAllBarcodesOnPage(String link) throws IOException {
         ArrayList<Category> categoriesList = new ArrayList<Category>();
-        Connection.Response bardcodeResponse = Jsoup.connect(link)
+        Connection.Response bardcodeResponse = Jsoup.connect(link.replaceAll(" ", ""))
                 .method(Connection.Method.GET)
+                .timeout(15000)
                 .userAgent("Mozilla")
                 .execute();
 
@@ -46,17 +76,10 @@ public class Parser {
 
         for(Element e : barcodes) {
             if(e.attr("id").endsWith("A2")) {
-                barcodesList.add(new Barcode(Long.valueOf(e.childNode(0).outerHtml().trim())));
+                barcodesList.add(new Barcode(e.childNode(0).outerHtml().trim()));
             }
         }
 
-        System.out.println("Добавлена новая категория\n"
-                +
-                "Имя: "
-                + title
-                + "\n"
-                + "Штрихкодов: " +
-                barcodesList.size());
 
         categoriesList.add(new Category(title, barcodesList));
 
