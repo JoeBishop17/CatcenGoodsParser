@@ -1,24 +1,26 @@
 package product;
 
+import javax.persistence.Column;
+import javax.persistence.Embeddable;
+import javax.persistence.Transient;
+import java.io.Serializable;
 import java.util.ArrayList;
 
 /**
  * Created by User on 19.06.2017.
  */
-public class Category {
+@Embeddable
+public class Category implements Serializable {
 
+    @Column(name = "category")
     private String name;
+    @Transient
     private ArrayList<Barcode> barcodes;
-    private ArrayList<Product> products;
 
-
+    public Category() {}
     public Category(String name, ArrayList<Barcode> barcodes) {
         this.barcodes = barcodes;
         this.name = name;
-    }
-
-    public void setProducts(ArrayList<Product> products) {
-        this.products = products;
     }
 
     public ArrayList<Barcode> getBarcodes() {

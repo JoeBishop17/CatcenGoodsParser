@@ -1,4 +1,6 @@
+import hibernate.ManageProduct;
 import org.jsoup.Connection;
+import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -7,11 +9,14 @@ import product.Barcode;
 import product.Category;
 import product.Product;
 
+import javax.persistence.EntityManager;
+import javax.persistence.EntityManagerFactory;
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 
-public class GoodsParser {
+public class GoodsParser implements Runnable{
 
     private String url = "http://www.goodsmatrix.ru/GMMap.aspx";
 
@@ -20,39 +25,51 @@ public class GoodsParser {
     private ArrayList<Category> categoryArrayList;
     private ArrayList<Product> productArrayList;
 
-    GoodsParser() throws IOException {
+    public GoodsParser() throws IOException {
+        System.out.println("Начало работы");
         links = parseCategoriesLinks();
+        System.out.println("Загрузка категорий...");
         categorieslinks = getLinksAsList(links);
-
-        for(String s : categorieslinks) {
-            String link = s.trim();
-            categoryArrayList = getAllBarcodesOnPage(link);
-            break;
-        }
-
-        for(Category c : categoryArrayList) {
-            for(Barcode b : c.getBarcodes()) {
-                productArrayList.add(getProductInfo(c, b));
-            }
-        }
+        System.out.println("Загрузка категорий - завершена");
+        productArrayList = new ArrayList<Product>();
+        run();
     }
 
     private Product getProductInfo(Category category, Barcode barcode) throws IOException {
         Product product = null;
 
+        String url = "http://goodsmatrix.ru/goods/" + barcode.getBarcode() + ".html".trim();
 
+        try {
+            Connection.Response response = Jsoup
+                    .connect(url)
+                    .timeout(300000000)
+                    .execute();
 
-        Document doc = Jsoup
-                .connect("http://goodsmatrix.ru/goods/" + barcode.toString() +  ".html")
-                .get();
+            int statusCode = response.statusCode();
 
-        String name = doc.select("title").text();
+            Document doc;
 
-        String composition = doc.select("span[id='ctl00_ContentPH_Composition']").text();
+            if(statusCode == 200) {
+                doc = response.parse();
 
-        product = new Product(category, name, composition, barcode);
+                String name = doc.select("title").text();
 
-        return product;
+                String composition = doc.select("#ctl00_ContentPH_Composition").text();
+
+                product = new Product(category, name, composition, barcode);
+
+                return product;
+            }
+
+            else {
+                System.out.println("Ошибка чтения URL. Status code error = " + statusCode);
+            }
+        } catch (HttpStatusException e) {
+            e.printStackTrace();
+        }
+
+        throw new IOException("Ошибка при попытке пропарсить ссылку " + url);
     }
 
     private ArrayList<Category> getAllBarcodesOnPage(String link) throws IOException {
@@ -79,7 +96,6 @@ public class GoodsParser {
                 barcodesList.add(new Barcode(e.childNode(0).outerHtml().trim()));
             }
         }
-
 
         categoriesList.add(new Category(title, barcodesList));
 
@@ -125,5 +141,57 @@ public class GoodsParser {
 
     ArrayList<String> getCategoriesLinks() {
         return categorieslinks;
+    }
+
+    public ArrayList<Product> getProductArrayList() {
+        return productArrayList;
+    }
+
+    @Override
+    public void run() {
+        ManageProduct manageProduct = new ManageProduct();
+
+        int totalProducts = 0;
+
+        for(String s : categorieslinks) {
+            System.out.println("Парсится ссылка " + s );
+            String link = s.trim();
+            try {
+                categoryArrayList = getAllBarcodesOnPage(link);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            int products = 0;
+
+            for(Category c : categoryArrayList) {
+                System.out.println("Парсится категория " + c.getName());
+                for(Barcode b : c.getBarcodes()) {
+                    if(!b.getBarcode().contains("&nbsp")) {
+                        products++;
+                        System.out.println("Парсится продукт. Штрихкод: " + b.getBarcode());
+                        Product product = null;
+                        try {
+                            product = getProductInfo(c, b);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        if(product != null) {
+                            productArrayList.add(product);
+                            manageProduct.addProduct(c, product, b);
+                        }
+                    }
+
+                    else {
+                        System.out.println("Ссылка на продукт имеет недопустимыый символ, пропуск.");
+                    }
+                }
+                System.out.println("Категория успешно пройдена.\nДобавлено продуктов: " + products);
+
+                totalProducts += products;
+
+                System.out.println("Всего добавлено продуктов:  " + totalProducts);
+            }
+        }
     }
 }
